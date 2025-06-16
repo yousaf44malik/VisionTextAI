@@ -4,6 +4,13 @@ import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoTokenizer, AutoModel
 import gradio as gr
+import sys
+import os
+
+# Add root to path for loading config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from configs.prompts import system_messages
 
 # --------------------
 # Image Preprocessing
@@ -20,16 +27,13 @@ def build_transform(input_size):
     ])
 
 def preprocess_single_image(pil_img, input_size=448):
-    """
-    Process a single image for the model.
-    """
     transform = build_transform(input_size)
     pil_img = pil_img.resize((input_size, input_size))
     tensor_img = transform(pil_img).unsqueeze(0)  # shape: (1, 3, H, W)
     return tensor_img
 
 # --------------------
-# Model Loading - This pulls the 1B, change to suit your needs
+# Model Loading
 # --------------------
 model_path = "OpenGVLab/InternVL3-1B"
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -54,66 +58,51 @@ print("Model loaded successfully!")
 # Conversation Helpers
 # --------------------
 def pairs_to_messages(history_pairs):
-    """
-    Convert a list of (user, assistant) pairs into a list of messages.
-    """
     messages = []
     for user_msg, assistant_msg in history_pairs:
         messages.append({"role": "user", "content": user_msg})
         messages.append({"role": "assistant", "content": assistant_msg})
     return messages
 
-def chat_interface(query, image, history_pairs):
-    """
-    Main function called on each user submit.
-    """
+def chat_interface(query, image, history_pairs, prompt_type):
     generation_config = {"max_new_tokens": 1024, "do_sample": True}
 
-    # Preprocess image if provided
+    # Load system prompt
+    system_prompt = system_messages.get(prompt_type, system_messages["default"])
+    full_query = f"{system_prompt}\n{query}"
+
     pixel_values = None
     if image is not None:
         if not isinstance(image, Image.Image):
             image = Image.fromarray(image)
-        
-        # Make sure the image is handled correctly
         try:
             pixel_values = preprocess_single_image(image, 448)
             pixel_values = pixel_values.to(torch.bfloat16 if torch.cuda.is_available() else torch.float32).to(device)
-            # Add <image> tag to the query if it's not already there
-            if "<image>" not in query:
-                query = "<image>\n" + query
+            if "<image>" not in full_query:
+                full_query = "<image>\n" + full_query
         except Exception as e:
             print(f"Error processing image: {e}")
-            # Continue without the image if there's an error
             pixel_values = None
-    
-    # Model chat call
+
     try:
         response, updated_history = model.chat(
             tokenizer,
             pixel_values,
-            query,
+            full_query,
             generation_config,
-            history=history_pairs,       # pass the old history pairs
-            return_history=True          # get the entire updated history as (user, assistant) pairs
+            history=history_pairs,
+            return_history=True
         )
     except Exception as e:
         print(f"Error during model.chat: {e}")
-        # Provide a fallback response if there's an error
         if history_pairs is None:
             history_pairs = []
         updated_history = history_pairs + [(query, "I'm sorry, I encountered an error processing your request.")]
         response = "I'm sorry, I encountered an error processing your request."
-    
-    # Return updated conversation in two forms:
-    # 1) messages for the Chatbot's display
-    # 2) the raw pairs for state tracking
+
     return pairs_to_messages(updated_history), updated_history
 
 def reset_history():
-    """
-    Returns empty conversation for messages + state.
-    """
     return [], []
 
 # --------------------
@@ -121,30 +110,30 @@ def reset_history():
 # --------------------
 with gr.Blocks() as demo:
     gr.Markdown("# InternVL3 Chat Interface")
-    
-    # 'type="messages"' => expects a list of dicts with 'role'/'content'
+
     chatbot = gr.Chatbot(label="Conversation", type="messages")
-    # We'll store conversation internally as a list of (user, assistant) pairs
     state = gr.State([])
 
     with gr.Row():
         txt = gr.Textbox(placeholder="Enter your message here", label="Message")
-        # Single image only (no `multiple=True`) to avoid errors
         img_input = gr.Image(label="Optional Image Input", type="pil")
+        prompt_selector = gr.Dropdown(
+            choices=list(system_messages.keys()),
+            value="default",
+            label="Prompt Type"
+        )
 
     with gr.Row():
         send_btn = gr.Button("Send")
         reset_btn = gr.Button("Reset Conversation")
 
-    # On click, process chat -> updates the chatbot display and conversation state
     send_btn.click(
         fn=chat_interface,
-        inputs=[txt, img_input, state],
+        inputs=[txt, img_input, state, prompt_selector],
         outputs=[chatbot, state],
         scroll_to_output=True
     )
 
-    # Reset the chat conversation
     reset_btn.click(fn=reset_history, outputs=[chatbot, state])
 
 if __name__ == "__main__":
