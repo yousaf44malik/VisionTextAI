@@ -1,46 +1,24 @@
-# 🚀 VisionText AI
+# 🧠 VisionText AI — InternVL3 Chat Interface
 
-**VisionText AI** is a modular, containerized application built with FastAPI, combining the power of Computer Vision (CV) and Natural Language Processing (NLP) into a single, extensible system. It serves both as a learning sandbox and a scalable foundation for future multi-modal AI services.
+**VisionText AI** is an interactive vision-language chat app powered by **InternVL3-1B**, built with PyTorch and Gradio. Users can input text and optionally upload images to get intelligent multimodal responses.
 
----
-
-## 🎯 Project Goals
-
-1. Practice clean software engineering workflows using Git, Docker, and FastAPI.
-2. Build a flexible, modular AI application that supports both language and vision tasks.
-3. Serve as a starting point for developing multi-modal AI systems using open-source models.
+> ⚠️ This version reflects the initial Gradio-based prototype. FastAPI APIs, Docker setup, and additional models (LLaVA, BLIP-2, EmBEL) will be added in future updates.
 
 ---
 
-## 🧠 Key Features
+## 🚀 Features
 
-- 🧾 **/process-nlp** — NLP endpoint using EmBEL v1 or other MTEB-compatible models.
-- 🖼️ **/process-image** — Vision endpoint using models like InternVL or BLIP-2.
-- 🔄 **/query-text-to-image** — Hybrid endpoint that accepts natural language and queries vision models.
-- 🐳 Docker-based local development and deployment.
-- 📚 Built-in Git workflow for clean branching, tagging, and PR-based collaboration.
-- 📊 Model benchmarking capabilities using the MTEB leaderboard.
+- 💬 Chat with an AI model using both **text and image input**
+- 🔁 Maintains **multi-turn conversation history**
+- 🧠 Uses [OpenGVLab/InternVL3-1B](https://huggingface.co/OpenGVLab/InternVL3-1B)
+- ⚙️ Easily configurable via a `config.yml` file
 
 ---
 
-## 📦 Tech Stack
+## 🛠️ Setup Instructions
 
-| Category        | Tools/Frameworks                      |
-|----------------|----------------------------------------|
-| Language        | Python 3.11                           |
-| API Framework   | FastAPI                               |
-| NLP Models      | EmBEL v1, MTEB benchmark models        |
-| Vision Models   | InternVL, BLIP-2, LLaVA                |
-| Containerization| Docker (multi-stage builds)           |
-| Testing Tools   | Swagger UI, Postman                   |
-| Version Control | Git + GitHub                          |
+### 1. Clone the repository
 
----
-
-## 🔧 API Endpoints
-
-### 1. `POST /process-nlp`
-```json
-{
-  "text": "Dental caries treatment options"
-}
+```bash
+git clone https://github.com/yousaf44malik/visiontextai.git
+cd visiontextai
