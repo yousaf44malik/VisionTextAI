@@ -1,21 +1,38 @@
+import logging
 import torch
-from PIL import Image
+from PIL import Image as PILImage
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoTokenizer, AutoModel
 import gradio as gr
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
+import numpy as np
+from configs import load_config
 from configs.prompts import system_messages
+from typing import List, Tuple, Dict, Any, Union
+from torchvision.transforms import Compose
 
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("VisionTextAI")
+
+config = load_config()
+model_path: str = config["model_path"]
+device: str = config["device"]
+input_size: int = config.get("input_size", 448)
+generation_config: Dict[str, Any] = config.get(
+    "generation_config", {"max_new_tokens": 1024, "do_sample": True}
+)
+imagenet_mean: Tuple[float, float, float] = tuple(
+    config.get("imagenet_mean", [0.485, 0.456, 0.406])
+)
+imagenet_std: Tuple[float, float, float] = tuple(
+    config.get("imagenet_std", [0.229, 0.224, 0.225])
+)
+
+logger.info(f"Usingm model: {model_path}")
+logger.info(f"Running on device: {device}")
 
 
-def build_transform(input_size):
+def build_transform(size: int) -> Compose:
     """
     Builds an image preprocessing pipeline with resizing, normalization, and RGB conversion.
 
@@ -23,19 +40,19 @@ def build_transform(input_size):
         input_size (int): Target width and height for resizing the image.
 
     Returns:
-        torchvision.transforms.Compose: Composed image transformation.
+        torchvision.transforms.Compose: Composed image transformation pipeline.
     """
     return T.Compose(
         [
             T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
-            T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
+            T.Resize((size, size), interpolation=InterpolationMode.BICUBIC),
             T.ToTensor(),
-            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+            T.Normalize(mean=imagenet_mean, std=imagenet_std),
         ]
     )
 
 
-def preprocess_single_image(pil_img, input_size=448):
+def preprocess_single_image(pil_img: PILImage.Image, size: int = 448) -> torch.Tensor:
     """
     Preprocesses a single PIL image for model inference.
 
@@ -46,16 +63,13 @@ def preprocess_single_image(pil_img, input_size=448):
     Returns:
         torch.Tensor: The preprocessed image tensor of shape (1, 3, H, W).
     """
-    transform = build_transform(input_size)
-    pil_img = pil_img.resize((input_size, input_size))
+    transform = build_transform(size)
+    pil_img = pil_img.resize((size, size))
     tensor_img = transform(pil_img).unsqueeze(0)
     return tensor_img
 
 
-model_path = "OpenGVLab/InternVL3-1B"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-print(f"Loading model on {device}...")
+logger.info(f"Loading model on {device}...")
 model = (
     AutoModel.from_pretrained(
         model_path,
@@ -67,25 +81,16 @@ model = (
     .eval()
     .to(device)
 )
-
 tokenizer = AutoTokenizer.from_pretrained(
     model_path, trust_remote_code=True, use_fast=False
 )
-print("Model loaded successfully!")
+logger.info("Model loaded successfully!")
 
 
-def pairs_to_messages(history_pairs):
+def pairs_to_messages(history_pairs: List[Tuple[str, str]]) -> List[Dict[str, str]]:
     """
-    Converts a list of (user, assistant) message tuples into a list of message dictionaries.
-
-    This format is required by Gradio's Chatbot component, where each message has a 'role' and 'content'.
-
-    Args:
-        history_pairs (list of tuple): A list of (user_message, assistant_message) pairs.
-
-    Returns:
-        list of dict: A flat list of message dictionaries formatted as {'role': ..., 'content': ...}.
-    """  
+    Converts list of (user, assistant) message pairs into a flat list of dicts for Gradio Chatbot.
+    """
     messages = []
     for user_msg, assistant_msg in history_pairs:
         messages.append({"role": "user", "content": user_msg})
@@ -93,42 +98,31 @@ def pairs_to_messages(history_pairs):
     return messages
 
 
-def chat_interface(query, image, history_pairs, prompt_type):
+def chat_interface(
+    query: str,
+    image: Union[PILImage.Image, np.ndarray, None],
+    history_pairs: List[Tuple[str, str]],
+    prompt_type: str,
+) -> Tuple[List[Dict[str, str]], List[Tuple[str, str]]]:
     """
-    Handles a chat turn by sending user input and optional image to the model, with dynamic system prompts.
-
-    Preprocesses the image (if any), formats the prompt with a system message, sends it to the model,
-    and returns the updated chat history.
-
-    Args:
-        query (str): The user's text input.
-        image (PIL.Image.Image or np.ndarray or None): Optional image to include in the prompt.
-        history_pairs (list of tuple): Previous (user, assistant) message pairs.
-        prompt_type (str): The system prompt type key to select a system message from.
-
-    Returns:
-        tuple:
-            - list of dict: Updated conversation formatted for Gradio's Chatbot component.
-            - list of tuple: Updated raw (user, assistant) history pairs for future turns.
+    Processes a user query and optional image, returns updated Gradio chat messages and raw history.
     """
-    generation_config = {"max_new_tokens": 1024, "do_sample": True}
-
     system_prompt = system_messages.get(prompt_type, system_messages["default"])
     full_query = f"{system_prompt}\n{query}"
 
     pixel_values = None
     if image is not None:
-        if not isinstance(image, Image.Image):
-            image = Image.fromarray(image)
+        if not isinstance(image, PILImage.Image):
+            image = PILImage.fromarray(image)
         try:
-            pixel_values = preprocess_single_image(image, 448)
+            pixel_values = preprocess_single_image(image, input_size)
             pixel_values = pixel_values.to(
                 torch.bfloat16 if torch.cuda.is_available() else torch.float32
             ).to(device)
             if "<image>" not in full_query:
                 full_query = "<image>\n" + full_query
         except Exception as e:
-            print(f"Error processing image: {e}")
+            logger.error(f"Error processing image: {e}", exc_info=True)
             pixel_values = None
 
     try:
@@ -141,29 +135,18 @@ def chat_interface(query, image, history_pairs, prompt_type):
             return_history=True,
         )
     except Exception as e:
-        print(f"Error during model.chat: {e}")
-        if history_pairs is None:
-            history_pairs = []
-        updated_history = history_pairs + [
+        logger.error(f"Error during model.chat: {e}", exc_info=True)
+        updated_history = history_pairs or []
+        updated_history.append(
             (query, "I'm sorry, I encountered an error processing your request.")
-        ]
+        )
         response = "I'm sorry, I encountered an error processing your request."
 
     return pairs_to_messages(updated_history), updated_history
 
 
-def reset_history():
-    """
-    Resets the chat history to an empty state.
-
-    This function clears both the display messages and the internal history tracking,
-    typically used when the user clicks a "Reset" button in the UI.
-
-    Returns:
-        tuple:
-            - list: An empty list for Gradio Chatbot display.
-            - list: An empty list for internal state tracking.
-    """
+def reset_history() -> Tuple[List[Any], List[Tuple[str, str]]]:
+    """Resets chat history."""
     return [], []
 
 
@@ -192,7 +175,3 @@ with gr.Blocks() as demo:
     )
 
     reset_btn.click(fn=reset_history, outputs=[chatbot, state])
-
-if __name__ == "__main__":
-    print("Starting Gradio interface...")
-    demo.launch()
