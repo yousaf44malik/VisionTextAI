@@ -15,19 +15,6 @@
 
 ---
 
-## 📁 Project Structure
-
-visiontextai/
-├── configs/
-│ ├── config.yml # Device/model settings
-│ └── prompts.py # Customizable prompt types
-│
-├── src/
-│ └── internVl.py # Gradio + inference logic
-│
-├── main.py # Entry point to launch the app
-└── README.md # You're here!
----
 
 ## 🚀 Getting Started
 
