@@ -3,7 +3,7 @@ version: '3.8'
 services:
   internvl:
     build:
-      context: ./src
+      context: ./src/internVl
       dockerfile: Dockerfile
     container_name: internvl
     ports:

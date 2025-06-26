@@ -101,12 +101,8 @@ def pairs_to_messages(history_pairs: List[Tuple[str, str]]) -> List[Dict[str, st
 def chat_interface(query, image, history_pairs, mode):
     generation_config = {"max_new_tokens": 1024, "do_sample": True}
 
-    # Apply system prompt from mode
     system_prompt = system_messages.get(mode, system_messages["Default"])
-    # if history_pairs is None or len(history_pairs) == 0:
-    #     history_pairs = [(system_prompt, "")]
 
-    # Preprocess image
     pixel_values = None
     if image is not None:
         try:
