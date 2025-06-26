@@ -98,51 +98,45 @@ def pairs_to_messages(history_pairs: List[Tuple[str, str]]) -> List[Dict[str, st
     return messages
 
 
-def chat_interface(
-    query: str,
-    image: Union[PILImage.Image, np.ndarray, None],
-    history_pairs: List[Tuple[str, str]],
-    prompt_type: str,
-) -> Tuple[List[Dict[str, str]], List[Tuple[str, str]]]:
-    """
-    Processes a user query and optional image, returns updated Gradio chat messages and raw history.
-    """
-    system_prompt = system_messages.get(prompt_type, system_messages["default"])
-    full_query = f"{system_prompt}\n{query}"
+def chat_interface(query, image, history_pairs, mode):
+    generation_config = {"max_new_tokens": 1024, "do_sample": True}
 
+    # Apply system prompt from mode
+    system_prompt = system_messages.get(mode, system_messages["Default"])
+    # if history_pairs is None or len(history_pairs) == 0:
+    #     history_pairs = [(system_prompt, "")]
+
+    # Preprocess image
     pixel_values = None
     if image is not None:
-        if not isinstance(image, PILImage.Image):
-            image = PILImage.fromarray(image)
         try:
-            pixel_values = preprocess_single_image(image, input_size)
-            pixel_values = pixel_values.to(
-                torch.bfloat16 if torch.cuda.is_available() else torch.float32
-            ).to(device)
-            if "<image>" not in full_query:
-                full_query = "<image>\n" + full_query
+            if not isinstance(image, PILImage.Image):
+                image = PILImage.fromarray(image)
+            pixel_values = preprocess_single_image(image, 448)
+            pixel_values = pixel_values.to(torch.bfloat16 if torch.cuda.is_available() else torch.float32).to(device)
+            if "<image>" not in query:
+                query = "<image>\n" + query
         except Exception as e:
-            logger.error(f"Error processing image: {e}", exc_info=True)
+            print(f"Error processing image: {e}")
             pixel_values = None
 
     try:
         response, updated_history = model.chat(
             tokenizer,
             pixel_values,
-            full_query,
+            query,
             generation_config,
             history=history_pairs,
             return_history=True,
+            system=system_prompt
         )
     except Exception as e:
-        logger.error(f"Error during model.chat: {e}", exc_info=True)
-        updated_history = history_pairs or []
-        updated_history.append(
-            (query, "I'm sorry, I encountered an error processing your request.")
-        )
+        print(f"Error during model.chat: {e}")
+        updated_history = history_pairs + [(query, "I'm sorry, I encountered an error processing your request.")]
         response = "I'm sorry, I encountered an error processing your request."
 
     return pairs_to_messages(updated_history), updated_history
+
 
 
 def reset_history() -> Tuple[List[Any], List[Tuple[str, str]]]:

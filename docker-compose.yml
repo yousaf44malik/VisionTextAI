@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  internvl:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: internvl
+    ports:
+      - "7860:7860"
+    volumes:
+      - .:/app
+    restart: unless-stopped
